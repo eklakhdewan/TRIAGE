@@ -16,6 +16,7 @@ def test_transformers_judge_loads_and_generates_without_provider_fallback(monkey
     monkeypatch.setenv("PHI4_LOAD_IN_4BIT", "1")
     monkeypatch.setenv("PHI4_MAX_INPUT_TOKENS", "4096")
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "memory_allocated", lambda: 0)
 
     class FakeTokenizer:
         pad_token_id = 0
