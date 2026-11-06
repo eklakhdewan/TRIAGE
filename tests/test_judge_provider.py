@@ -15,6 +15,10 @@ from src.core.llm_client import UnifiedLLMClient
 def _isolate_env(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.delenv("JUDGE_PROVIDER", raising=False)
+    # src.config is imported before fixtures run; neutralize any JUDGE_PROVIDER
+    # value loaded from the notebook-created .env so this test represents the
+    # true no-override/default configuration.
+    monkeypatch.setattr("src.config.JUDGE_PROVIDER", "ollama")
 
 
 def test_hybrid_judge_on_huggingface_generator_on_ollama(monkeypatch):
