@@ -32,17 +32,15 @@ class UnifiedLLMClient:
         max_tokens: int = 512,
     ):
         from src.config import (
-            LLM_PROVIDER, LLM_HF_MODEL, JUDGE_HF_MODEL, JUDGE_OLLAMA_MODEL,
-            LLM_MODEL, HF_TOKEN,
+            LLM_PROVIDER, LLM_HF_MODEL, JUDGE_HF_MODEL, JUDGE_MODEL,
+            JUDGE_PROVIDER, JUDGE_OLLAMA_MODEL, LLM_MODEL, HF_TOKEN,
         )
 
+        self.is_judge = model in (JUDGE_HF_MODEL, JUDGE_MODEL, "judge")
         self.provider = (provider or os.getenv("LLM_PROVIDER") or LLM_PROVIDER).lower()
-        # Judge-specific provider override: run the generator fully local
-        # (e.g., ollama on a small GPU) while the judge uses a stronger
-        # remote model (e.g., huggingface cloud = Qwen2.5-72B-Instruct).
-        # An explicit provider kwarg always wins over the env override.
-        if not provider and (model == JUDGE_HF_MODEL or model == "judge"):
-            judge_provider = (os.getenv("JUDGE_PROVIDER") or "").strip().lower()
+        # An explicit provider kwarg always wins over the judge override.
+        if not provider and self.is_judge:
+            judge_provider = (os.getenv("JUDGE_PROVIDER") or JUDGE_PROVIDER).strip().lower()
             if judge_provider:
                 self.provider = judge_provider
         self.temperature = temperature
@@ -50,11 +48,18 @@ class UnifiedLLMClient:
         self.token = os.getenv("HF_TOKEN") or HF_TOKEN
         self.ollama_model = (
             JUDGE_OLLAMA_MODEL
-            if model == JUDGE_HF_MODEL
+            if self.is_judge
             else LLM_MODEL
             if model is None or model in (LLM_MODEL, LLM_HF_MODEL)
             else model
         )
+
+        if self.provider == "transformers":
+            if not self.is_judge:
+                raise ValueError("The Transformers backend is reserved for the configured judge.")
+            self.model = JUDGE_MODEL
+            self._load_transformers_judge()
+            return
 
         if self.provider == "nvidia":
             from src.config import NVIDIA_API_KEY, NVIDIA_BASE_URL, LLM_NVIDIA_MODEL, JUDGE_NVIDIA_MODEL
@@ -86,6 +91,91 @@ class UnifiedLLMClient:
                 logger.info("HF provider unavailable (no token) - using Ollama.")
         self.provider = "ollama"
         self.model = self.ollama_model
+
+    def _load_transformers_judge(self):
+        """Load the local causal-LM judge; Phi-4 is quantized for Kaggle T4."""
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "JUDGE_PROVIDER=transformers requires CUDA. Enable Kaggle GPU T4."
+            )
+
+        load_in_4bit = os.getenv("PHI4_LOAD_IN_4BIT", "1").strip() == "1"
+        max_input_tokens = int(os.getenv("PHI4_MAX_INPUT_TOKENS", "4096"))
+        if not 512 <= max_input_tokens <= 12000:
+            raise ValueError("PHI4_MAX_INPUT_TOKENS must be between 512 and 12000.")
+
+        self._judge_tokenizer = AutoTokenizer.from_pretrained(self.model)
+        if self._judge_tokenizer.pad_token_id is None:
+            self._judge_tokenizer.pad_token = self._judge_tokenizer.eos_token
+
+        quantization_config = None
+        if load_in_4bit:
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_use_double_quant=True,
+            )
+
+        logger.info(
+            "Loading judge %s (4-bit NF4=%s, input budget=%d)",
+            self.model, load_in_4bit, max_input_tokens,
+        )
+        self._judge_model = AutoModelForCausalLM.from_pretrained(
+            self.model,
+            quantization_config=quantization_config,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            max_memory={0: "12GiB", "cpu": "24GiB"},
+            low_cpu_mem_usage=True,
+        )
+        self._judge_model.eval()
+        self._judge_max_input_tokens = max_input_tokens
+        logger.info(
+            "Transformers judge loaded; GPU allocated %.2f GiB",
+            torch.cuda.memory_allocated() / (1024 ** 3),
+        )
+
+    def _chat_transformers(self, messages, temp, tokens, json_mode):
+        """Run deterministic local chat generation through the loaded judge."""
+        import torch
+
+        prompt_messages = list(messages)
+        if json_mode:
+            prompt_messages.append({
+                "role": "system",
+                "content": "Return only valid JSON. Do not include Markdown fences.",
+            })
+        prompt = self._judge_tokenizer.apply_chat_template(
+            prompt_messages, tokenize=False, add_generation_prompt=True
+        )
+        inputs = self._judge_tokenizer(prompt, return_tensors="pt")
+        input_ids = inputs["input_ids"]
+        if input_ids.shape[-1] > self._judge_max_input_tokens:
+            # Preserve the answer and output schema at the end of the prompt.
+            input_ids = input_ids[:, -self._judge_max_input_tokens:]
+            inputs["input_ids"] = input_ids
+            if "attention_mask" in inputs:
+                inputs["attention_mask"] = inputs["attention_mask"][:, -self._judge_max_input_tokens:]
+
+        inputs = {key: value.to(self._judge_model.device) for key, value in inputs.items()}
+        pad_id = self._judge_tokenizer.pad_token_id or self._judge_tokenizer.eos_token_id
+        with torch.inference_mode():
+            output = self._judge_model.generate(
+                **inputs,
+                max_new_tokens=tokens,
+                do_sample=False,
+                use_cache=True,
+                pad_token_id=pad_id,
+                eos_token_id=self._judge_tokenizer.eos_token_id,
+            )
+        generated = output[0, inputs["input_ids"].shape[-1]:]
+        return self._judge_tokenizer.decode(
+            generated, skip_special_tokens=True
+        ).strip()
 
     def _chat_ollama(self, messages, temp, tokens, json_mode, model):
         import ollama
@@ -135,6 +225,10 @@ class UnifiedLLMClient:
         tokens = max_tokens if max_tokens is not None else self.max_tokens
 
         ollama_target = self.model if self.provider == "ollama" else self.ollama_model
+
+        if self.provider == "transformers":
+            # Never silently fall back: mixed judges would invalidate the run.
+            return self._chat_transformers(messages, temp, tokens, json_mode)
 
         if self.provider == "nvidia":
             payload = {
