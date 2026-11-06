@@ -326,19 +326,12 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "nvidia").strip().lower()  # "nvidia", 
 LLM_HF_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
 
 # Judge configuration.
-# JUDGE_PROVIDER is the intended backend for the independent judge. Keep the
-# default on Ollama until the dedicated Transformers reward-model adapter is
-# implemented; setting "transformers" here alone does not load a reward model.
+# Kaggle selects the local Transformers backend and loads Phi-4 in 4-bit NF4.
+# Keep the general provider default on Ollama for backwards compatibility;
+# the Kaggle notebook writes its explicit provider/model configuration.
 JUDGE_PROVIDER = os.getenv("JUDGE_PROVIDER", "ollama").strip().lower()
-JUDGE_MODEL = os.getenv(
-    "JUDGE_MODEL",
-    "MedGUIDE/ClinicalRewardModel-Qwen2_5-7B",
-).strip()
-
-# Legacy chat-judge model identifiers retained for the existing Ollama,
-# Hugging Face Inference API, and NVIDIA client paths. The ClinicalRewardModel
-# must be integrated through its own scoring adapter, not chat completion.
-JUDGE_HF_MODEL = "Qwen/Qwen2.5-72B-Instruct"
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", "microsoft/phi-4").strip()
+JUDGE_HF_MODEL = "Qwen/Qwen2.5-72B-Instruct"  # legacy judge sentinel
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 # Text-optimized NIM models (vision-instruct variants underperform on clinical
