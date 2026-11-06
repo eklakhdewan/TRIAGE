@@ -322,15 +322,23 @@ EVIDENCE_WORD_BUDGET = 350
 VANILLA_TOP_K = 5
 
 # LLM Configuration
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "nvidia")  # "nvidia", "huggingface", or "ollama"
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "nvidia").strip().lower()  # "nvidia", "huggingface", or "ollama"
 LLM_HF_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
-JUDGE_HF_MODEL = "Qwen/Qwen2.5-72B-Instruct"  # Separate judge to avoid self-preference bias
-# Base-paper parity : 72B-class judge as in the paper's
-# protocol. Fits A100 80GB locally (Q4). Override to qwen3:14b for small GPUs.
+
+# Judge configuration.
+# JUDGE_PROVIDER is the intended backend for the independent judge. Keep the
+# default on Ollama until the dedicated Transformers reward-model adapter is
+# implemented; setting "transformers" here alone does not load a reward model.
+JUDGE_PROVIDER = os.getenv("JUDGE_PROVIDER", "ollama").strip().lower()
 JUDGE_MODEL = os.getenv(
     "JUDGE_MODEL",
-    "MedGUIDE/ClinicalRewardModel-Qwen2_5-7B"
-)
+    "MedGUIDE/ClinicalRewardModel-Qwen2_5-7B",
+).strip()
+
+# Legacy chat-judge model identifiers retained for the existing Ollama,
+# Hugging Face Inference API, and NVIDIA client paths. The ClinicalRewardModel
+# must be integrated through its own scoring adapter, not chat completion.
+JUDGE_HF_MODEL = "Qwen/Qwen2.5-72B-Instruct"
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 # Text-optimized NIM models (vision-instruct variants underperform on clinical
