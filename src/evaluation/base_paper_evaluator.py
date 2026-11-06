@@ -181,7 +181,7 @@ class BasePaperEvaluator:
     ]
 
     def __init__(self, judge_llm: Optional[UnifiedLLMClient] = None):
-        """Initialize evaluator with a deterministic judge LLM (defaults to Qwen2.5-72B)."""
+        """Initialize the configured deterministic judge (Phi-4 via Transformers on Kaggle)."""
         if judge_llm is None:
             from src.config import JUDGE_HF_MODEL
             self.judge = UnifiedLLMClient(model=JUDGE_HF_MODEL, temperature=0.0, max_tokens=768)
