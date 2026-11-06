@@ -331,6 +331,8 @@ LLM_HF_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
 # the Kaggle notebook writes its explicit provider/model configuration.
 JUDGE_PROVIDER = os.getenv("JUDGE_PROVIDER", "ollama").strip().lower()
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", "microsoft/phi-4").strip()
+# Legacy Ollama fallback only; Kaggle primary judge uses JUDGE_PROVIDER=transformers.
+JUDGE_OLLAMA_MODEL = os.getenv("JUDGE_OLLAMA_MODEL", "qwen2.5:14b").strip()
 JUDGE_HF_MODEL = "Qwen/Qwen2.5-72B-Instruct"  # legacy judge sentinel
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
