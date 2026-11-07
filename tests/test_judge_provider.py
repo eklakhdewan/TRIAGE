@@ -1,8 +1,7 @@
 """Tests for the JUDGE_PROVIDER override in UnifiedLLMClient.
 
-The hybrid mode: generator runs locally (ollama) while the judge uses a
-stronger remote provider (huggingface cloud / nvidia). The judge is
-identified by constructing the client with JUDGE_HF_MODEL.
+Generator and judge both use Ollama by default, with independent model names.
+The judge is identified by constructing the client with JUDGE_HF_MODEL.
 """
 
 import pytest
