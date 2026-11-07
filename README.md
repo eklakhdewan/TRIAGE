@@ -75,8 +75,8 @@ Use the repository-root `.env` as the single local environment file — copy
 `.env.example` and keep one profile:
 
 - **Profile A (all LLMs local via ollama, zero LLM API keys):**
-  `LLM_PROVIDER=ollama` + `JUDGE_OLLAMA_MODEL=qwen2.5:14b`. Generator
-  (`llama3.1:8b`) and judge both run via ollama. Everything else keeps its
+  `LLM_PROVIDER=ollama` + `JUDGE_OLLAMA_MODEL=phi4:14b`. Generator
+  (`llama3.1:8b`) and Phi-4 judge (`phi4:14b`) both run via Ollama. Everything else keeps its
   existing behavior — W&B stays online if `WANDB_API_KEY` is set, the JEV
   gate stays live if `TYPESAFE_API_KEY` is set.
 - **Profile B (cloud-judge upgrade, opt-in):** `JUDGE_PROVIDER=huggingface`
