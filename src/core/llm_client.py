@@ -179,7 +179,11 @@ class UnifiedLLMClient:
 
     def _chat_ollama(self, messages, temp, tokens, json_mode, model):
         import ollama
-        kwargs = {"options": {"temperature": temp, "num_predict": tokens}}
+        options = {"temperature": temp, "num_predict": tokens}
+        # Keep the answer generator on CPU; reserve the Kaggle T4 for Phi-4.
+        if not self.is_judge:
+            options["num_gpu"] = 0
+        kwargs = {"options": options}
         if json_mode:
             kwargs["format"] = "json"
         if model.startswith("qwen3:"):
@@ -195,7 +199,11 @@ class UnifiedLLMClient:
         """Timeout-guarded HTTP call (the ollama pkg has no timeout kwarg)."""
         payload = {
             "model": model, "messages": messages, "stream": False,
-            "options": {"temperature": temp, "num_predict": tokens},
+            "options": {
+                "temperature": temp,
+                "num_predict": tokens,
+                **({"num_gpu": 0} if not self.is_judge else {}),
+            },
         }
         if json_mode:
             payload["format"] = "json"
