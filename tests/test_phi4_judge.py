@@ -1,88 +1,49 @@
-"""Tests for the local Transformers judge backend used by Kaggle Phi-4 runs."""
+"""Tests for Phi-4 running as the Ollama judge (not Transformers)."""
 
-import sys
-import types
-
-import torch
+import json
 
 from src.config import JUDGE_HF_MODEL
 from src.core.llm_client import UnifiedLLMClient
 
 
-def test_transformers_judge_loads_and_generates_without_provider_fallback(monkeypatch):
+def test_phi4_ollama_is_selected_for_judge(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
-    monkeypatch.setenv("JUDGE_PROVIDER", "transformers")
-    monkeypatch.setenv("JUDGE_MODEL", "microsoft/phi-4")
-    monkeypatch.setenv("PHI4_LOAD_IN_4BIT", "1")
-    monkeypatch.setenv("PHI4_MAX_INPUT_TOKENS", "4096")
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-    monkeypatch.setattr(torch.cuda, "memory_allocated", lambda: 0)
+    monkeypatch.setenv("JUDGE_PROVIDER", "ollama")
+    monkeypatch.setenv("JUDGE_OLLAMA_MODEL", "phi4:14b")
 
-    class FakeTokenizer:
-        pad_token_id = 0
-        eos_token_id = 2
-        pad_token = None
-        eos_token = "</s>"
+    judge = UnifiedLLMClient(model=JUDGE_HF_MODEL, temperature=0.0, max_tokens=32)
 
-        @classmethod
-        def from_pretrained(cls, model_name):
-            assert model_name == "microsoft/phi-4"
-            return cls()
+    assert judge.provider == "ollama"
+    assert judge.model == "phi4:14b"
 
-        def apply_chat_template(self, messages, **kwargs):
-            return "rendered prompt"
 
-        def __call__(self, prompt, return_tensors):
-            return {
-                "input_ids": torch.tensor([[1, 2]]),
-                "attention_mask": torch.tensor([[1, 1]]),
-            }
+def test_phi4_judge_uses_gpu_while_generator_is_cpu(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("JUDGE_PROVIDER", "ollama")
+    monkeypatch.setenv("JUDGE_OLLAMA_MODEL", "phi4:14b")
 
-        def decode(self, tokens, skip_special_tokens=True):
-            return "PHI4_TEST_OK"
+    captured = {}
 
-    class FakeModel:
-        device = torch.device("cpu")
+    class Response:
+        def raise_for_status(self):
+            pass
 
-        @classmethod
-        def from_pretrained(cls, model_name, **kwargs):
-            assert model_name == "microsoft/phi-4"
-            assert kwargs["quantization_config"].load_in_4bit is True
-            return cls()
+        def json(self):
+            return {"message": {"content": "PHI4_TEST_OK"}}
 
-        def eval(self):
-            return self
+    def fake_post(url, json=None, timeout=None):
+        captured["payload"] = json
+        return Response()
 
-        def generate(self, **kwargs):
-            return torch.tensor([[1, 2, 3]])
+    monkeypatch.setattr("requests.post", fake_post)
 
-    class FakeBitsAndBytesConfig:
-        def __init__(self, **kwargs):
-            self.__dict__.update(kwargs)
+    judge = UnifiedLLMClient(model=JUDGE_HF_MODEL, temperature=0.0, max_tokens=32)
+    generator = UnifiedLLMClient(model=None, temperature=0.1, max_tokens=32)
 
-    fake_transformers = types.SimpleNamespace(
-        AutoTokenizer=FakeTokenizer,
-        AutoModelForCausalLM=FakeModel,
-        BitsAndBytesConfig=FakeBitsAndBytesConfig,
-    )
-    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
-
-    judge = UnifiedLLMClient(
-        model=JUDGE_HF_MODEL,
-        temperature=0.0,
-        max_tokens=32,
-    )
-
-    assert judge.provider == "transformers"
-    assert judge.model == "microsoft/phi-4"
     assert judge.chat([{"role": "user", "content": "test"}]) == "PHI4_TEST_OK"
+    judge_options = captured["payload"]["options"]
+    assert "num_gpu" not in judge_options
 
-
-def test_transformers_backend_does_not_override_generator(monkeypatch):
-    monkeypatch.setenv("LLM_PROVIDER", "ollama")
-    monkeypatch.setenv("JUDGE_PROVIDER", "transformers")
-
-    generator = UnifiedLLMClient(model="llama3.1:8b")
-
-    assert generator.provider == "ollama"
-    assert generator.model == "llama3.1:8b"
+    assert generator.chat([{"role": "user", "content": "test"}]) == "PHI4_TEST_OK"
+    generator_options = captured["payload"]["options"]
+    assert generator_options["num_gpu"] == 0
