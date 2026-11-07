@@ -325,15 +325,12 @@ VANILLA_TOP_K = 5
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "nvidia").strip().lower()  # "nvidia", "huggingface", or "ollama"
 LLM_HF_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
 
-# Judge configuration.
-# Kaggle selects the local Transformers backend and loads Phi-4 in 4-bit NF4.
-# Keep the general provider default on Ollama for backwards compatibility;
-# the Kaggle notebook writes its explicit provider/model configuration.
+# Judge configuration. The primary local judge runs through Ollama.
 JUDGE_PROVIDER = os.getenv("JUDGE_PROVIDER", "ollama").strip().lower()
-JUDGE_MODEL = os.getenv("JUDGE_MODEL", "microsoft/phi-4").strip()
-# Legacy Ollama fallback only; Kaggle primary judge uses JUDGE_PROVIDER=transformers.
-JUDGE_OLLAMA_MODEL = os.getenv("JUDGE_OLLAMA_MODEL", "qwen2.5:14b").strip()
-JUDGE_HF_MODEL = "Qwen/Qwen2.5-72B-Instruct"  # legacy judge sentinel
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", "phi4:14b").strip()
+JUDGE_OLLAMA_MODEL = os.getenv("JUDGE_OLLAMA_MODEL", JUDGE_MODEL).strip()
+# Backwards-compatible sentinel passed by BasePaperEvaluator to identify judge clients.
+JUDGE_HF_MODEL = "Qwen/Qwen2.5-72B-Instruct"
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
 NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 # Text-optimized NIM models (vision-instruct variants underperform on clinical
